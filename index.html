@@ -35,6 +35,7 @@ li{display:flex;align-items:center;gap:6px;border-radius:10px}
 li.cur{background:var(--card);color:var(--acc);font-weight:600}
 li .n{flex:1;padding:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
 li .x{background:none;border:0;font-size:22px;padding:8px 12px;color:var(--mut)}
+.pos{font-size:12px;color:var(--mut);white-space:nowrap}
 .hint{color:var(--mut);font-size:13px;margin:6px 0}
 #sheet{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:flex-end;z-index:10}
 #sheet .box{background:var(--bg);width:100%;max-width:560px;margin:auto;border-radius:20px 20px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));max-height:80%;overflow:auto}
@@ -158,7 +159,10 @@ function render(){
     n.onclick=()=>play(s.id);
     const x=document.createElement('button');x.className='x';x.textContent='⋯';
     x.onclick=()=>openSheet(s);
-    li.append(n,x);ul.appendChild(li);
+    li.append(n);
+    const t=getPos(s.id);
+    if(t>5&&s.id!==curId){const m=document.createElement('span');m.className='pos';m.textContent='parou em '+fmt(t);li.append(m)}
+    li.append(x);ul.appendChild(li);
   });
 }
 
@@ -195,7 +199,7 @@ $('sheet').onclick=e=>{if(e.target.id==='sheet')closeSheet()};
 
 async function removeSong(s){
   if(!confirm('Apagar "'+s.name+'" do app?'))return;
-  closeSheet();
+  closeSheet();setPos(s.id,0);
   if(s.id===curId){player.pause();player.removeAttribute('src');curId=null;$('title').textContent='Nenhuma música tocando'}
   for(const p of pls){
     const i=p.songIds.indexOf(s.id);
@@ -220,12 +224,33 @@ $('delpl').onclick=async()=>{
 };
 
 /* ---------- reprodução ---------- */
-function play(id){
+/* ---------- lembrar onde parou ---------- */
+const POS='sonora:pos:',LAST='sonora:last';
+const getPos=id=>{try{return parseFloat(localStorage.getItem(POS+id))||0}catch(e){return 0}};
+const setPos=(id,t)=>{try{if(t>0)localStorage.setItem(POS+id,String(Math.floor(t)));else localStorage.removeItem(POS+id)}catch(e){}};
+const fmt=t=>{t=Math.floor(t);const h=Math.floor(t/3600),m=Math.floor(t%3600/60),s=t%60;return (h?h+':'+String(m).padStart(2,'0'):m)+':'+String(s).padStart(2,'0')};
+let seekTo=0,lastSave=0;
+function savePos(){if(curId!==null&&player.currentTime>0)setPos(curId,player.currentTime)}
+player.addEventListener('loadedmetadata',()=>{
+  if(seekTo>5&&isFinite(player.duration)&&seekTo<player.duration-10)player.currentTime=seekTo;
+  seekTo=0;
+});
+player.addEventListener('timeupdate',()=>{const n=Date.now();if(n-lastSave>5000){lastSave=n;savePos()}});
+player.addEventListener('pause',savePos);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)savePos()});
+window.addEventListener('pagehide',savePos);
+
+/* ---------- reprodução ---------- */
+function load(id,auto){
   const s=songs.find(x=>x.id===id);if(!s)return;
+  savePos();
   curId=id;
+  try{localStorage.setItem(LAST,String(id))}catch(e){}
   if(curUrl)URL.revokeObjectURL(curUrl);
   curUrl=URL.createObjectURL(s.blob);
-  player.src=curUrl;player.play().catch(()=>{});
+  seekTo=getPos(id);
+  player.src=curUrl;
+  if(auto)player.play().catch(()=>{});
   $('title').textContent=s.name;
   if('mediaSession' in navigator){
     navigator.mediaSession.metadata=new MediaMetadata({title:s.name,artist:'Sonora'});
@@ -234,6 +259,7 @@ function play(id){
   }
   render();
 }
+const play=id=>load(id,true);
 function step(d){
   if(!view.length)return;
   const i=view.findIndex(s=>s.id===curId);
@@ -246,7 +272,7 @@ function next(){
   }else step(1);
 }
 const prev=()=>step(-1);
-player.onended=()=>{if(repeat){player.currentTime=0;player.play()}else next()};
+player.onended=()=>{setPos(curId,0);if(repeat){player.currentTime=0;player.play()}else next()};
 $('next').onclick=next;$('prev').onclick=prev;
 $('shuf').onclick=e=>{shuffle=!shuffle;e.currentTarget.classList.toggle('on',shuffle)};
 $('rep').onclick=e=>{repeat=!repeat;e.currentTarget.classList.toggle('on',repeat)};
@@ -272,7 +298,10 @@ $('files').onchange=async e=>{
 
 /* ---------- PWA ---------- */
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
-refresh();
+refresh().then(()=>{
+  let l=0;try{l=parseInt(localStorage.getItem(LAST))||0}catch(e){}
+  if(l&&songs.find(s=>s.id===l))load(l,false);
+});
 </script>
 </body>
 </html>
