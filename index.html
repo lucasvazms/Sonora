@@ -19,7 +19,7 @@ h1{font-size:20px;margin:0 0 12px}
 .now{position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:2}
 .card{background:var(--card);border-radius:16px;padding:14px}
 #title{font-weight:600;min-height:22px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-video{width:100%;max-height:180px;margin-top:8px;border-radius:12px;background:#000}
+audio{width:100%;margin-top:10px}
 .ctrl{display:flex;gap:8px;margin-top:8px}
 .ctrl .btn{flex:1;padding:10px}
 .on{outline:2px solid var(--acc)}
@@ -41,7 +41,7 @@ li .x{background:none;border:0;font-size:18px;padding:10px;color:var(--mut)}
 <div class="now">
   <div class="card">
     <div id="title">Nenhuma música tocando</div>
-    <video id="player" controls playsinline></video>
+    <audio id="player" controls></audio>
     <div class="ctrl">
       <button class="btn sec" id="prev">⏮</button>
       <button class="btn sec" id="next">⏭</button>
