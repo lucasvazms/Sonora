@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#6c47ff">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Sonora</title>
+<style>
+:root{--bg:#fff;--fg:#1a1a1a;--card:#f2f2f5;--acc:#6c47ff;--mut:#777;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root{--bg:#111;--fg:#f1f1f1;--card:#1e1e24;--mut:#999}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,sans-serif;max-width:560px;margin:auto;padding:16px 16px 40px}
+h1{font-size:20px;margin:0 0 12px}
+.btn{background:var(--acc);color:#fff;border:0;border-radius:12px;padding:12px 16px;font-size:16px}
+.btn.sec{background:var(--card);color:var(--fg)}
+.now{position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:2}
+.card{background:var(--card);border-radius:16px;padding:14px}
+#title{font-weight:600;min-height:22px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+video{width:100%;max-height:180px;margin-top:8px;border-radius:12px;background:#000}
+.ctrl{display:flex;gap:8px;margin-top:8px}
+.ctrl .btn{flex:1;padding:10px}
+.on{outline:2px solid var(--acc)}
+input[type=search]{width:100%;padding:11px;border-radius:12px;border:1px solid var(--card);background:var(--card);color:var(--fg);font-size:16px;margin:12px 0 4px}
+ul{list-style:none;padding:0;margin:8px 0 0}
+li{display:flex;align-items:center;gap:6px;border-radius:10px}
+li.cur{background:var(--card);color:var(--acc);font-weight:600}
+li .n{flex:1;padding:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+li .x{background:none;border:0;font-size:18px;padding:10px;color:var(--mut)}
+.hint{color:var(--mut);font-size:13px;margin:6px 0}
+</style>
+</head>
+<body>
+<h1>🎵 Sonora</h1>
+<input id="files" type="file" accept="audio/*,video/*,.mp3,.m4a,.mp4,.webm,.opus,.flac,.ogg,.wav" multiple hidden>
+<button class="btn" id="add">+ Adicionar músicas</button>
+<p class="hint" id="info"></p>
+
+<div class="now">
+  <div class="card">
+    <div id="title">Nenhuma música tocando</div>
+    <video id="player" controls playsinline></video>
+    <div class="ctrl">
+      <button class="btn sec" id="prev">⏮</button>
+      <button class="btn sec" id="next">⏭</button>
+      <button class="btn sec" id="shuf">🔀</button>
+      <button class="btn sec" id="rep">🔁</button>
+    </div>
+  </div>
+</div>
+
+<input id="q" type="search" placeholder="Buscar música">
+<ul id="list"></ul>
+
+<script>
+const $=id=>document.getElementById(id);
+const player=$('player');
+let songs=[],view=[],curId=null,shuffle=false,repeat=false,curUrl=null;
+
+/* ---------- banco de dados (IndexedDB) ---------- */
+function db(){return new Promise((res,rej)=>{
+  const r=indexedDB.open('musicapp',1);
+  r.onupgradeneeded=()=>r.result.createObjectStore('songs',{keyPath:'id',autoIncrement:true});
+  r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);
+})}
+async function tx(mode,fn){
+  const d=await db();
+  return new Promise((res,rej)=>{
+    const t=d.transaction('songs',mode),s=t.objectStore('songs');
+    const out=fn(s);
+    t.oncomplete=()=>res(out&&out.result!==undefined?out.result:undefined);
+    t.onerror=()=>rej(t.error);
+  });
+}
+const loadAll=()=>tx('readonly',s=>s.getAll());
+const addSong=o=>tx('readwrite',s=>s.add(o));
+const delSong=id=>tx('readwrite',s=>s.delete(id));
+
+/* ---------- interface ---------- */
+async function refresh(){
+  try{songs=await loadAll()}catch(e){songs=[];$('info').textContent='Não consegui abrir o armazenamento do navegador.'}
+  songs.sort((a,b)=>a.name.localeCompare(b.name));
+  render();usage();
+}
+function render(){
+  const q=$('q').value.toLowerCase();
+  view=songs.filter(s=>s.name.toLowerCase().includes(q));
+  const ul=$('list');ul.innerHTML='';
+  view.forEach(s=>{
+    const li=document.createElement('li');
+    if(s.id===curId)li.className='cur';
+    const n=document.createElement('div');n.className='n';n.textContent=s.name;
+    n.onclick=()=>play(s.id);
+    const x=document.createElement('button');x.className='x';x.textContent='🗑';
+    x.onclick=()=>remove(s);
+    li.append(n,x);ul.appendChild(li);
+  });
+}
+async function usage(){
+  let t=songs.length+' músicas salvas';
+  try{const e=await navigator.storage.estimate();t+=' · '+(e.usage/1048576).toFixed(0)+' MB usados'}catch(e){}
+  $('info').textContent=t;
+}
+
+/* ---------- reprodução ---------- */
+function play(id){
+  const s=songs.find(x=>x.id===id);if(!s)return;
+  curId=id;
+  if(curUrl)URL.revokeObjectURL(curUrl);
+  curUrl=URL.createObjectURL(s.blob);
+  player.src=curUrl;player.play().catch(()=>{});
+  $('title').textContent=s.name;
+  if('mediaSession' in navigator){
+    navigator.mediaSession.metadata=new MediaMetadata({title:s.name});
+    navigator.mediaSession.setActionHandler('nexttrack',next);
+    navigator.mediaSession.setActionHandler('previoustrack',prev);
+  }
+  render();
+}
+function step(d){
+  if(!view.length)return;
+  const i=view.findIndex(s=>s.id===curId);
+  play(view[(i+d+view.length)%view.length].id);
+}
+function next(){
+  if(shuffle&&view.length>1){
+    let s;do{s=view[Math.floor(Math.random()*view.length)]}while(s.id===curId);
+    play(s.id);
+  }else step(1);
+}
+const prev=()=>step(-1);
+player.onended=()=>{if(repeat){player.currentTime=0;player.play()}else next()};
+$('next').onclick=next;$('prev').onclick=prev;
+$('shuf').onclick=e=>{shuffle=!shuffle;e.currentTarget.classList.toggle('on',shuffle)};
+$('rep').onclick=e=>{repeat=!repeat;e.currentTarget.classList.toggle('on',repeat)};
+$('q').oninput=render;
+
+/* ---------- adicionar / apagar ---------- */
+$('add').onclick=()=>$('files').click();
+$('files').onchange=async e=>{
+  const fs=[...e.target.files];let n=0;
+  for(const f of fs){
+    $('info').textContent='Salvando '+(++n)+' de '+fs.length+'…';
+    try{await addSong({name:f.name.replace(/\.[^.]+$/,''),type:f.type,blob:f,added:Date.now()})}
+    catch(err){$('info').textContent='Sem espaço ou erro ao salvar: '+f.name;break}
+  }
+  e.target.value='';
+  await refresh();
+  if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
+};
+async function remove(s){
+  if(!confirm('Apagar "'+s.name+'" do app?'))return;
+  if(s.id===curId){player.pause();player.removeAttribute('src');curId=null;$('title').textContent='Nenhuma música tocando'}
+  await delSong(s.id);await refresh();
+}
+
+/* ---------- PWA ---------- */
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+refresh();
+</script>
+</body>
+</html>
